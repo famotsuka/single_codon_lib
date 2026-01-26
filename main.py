@@ -1,4 +1,5 @@
-from scripts.design_lib import gene, generate_fragments, single_mutants, oligo_pre_sequences, mutate_sequence, cut_fragment
+from scripts.design_lib import gene, generate_fragments, single_mutants 
+from scripts.design_lib import oligo_pre_sequences, mutate_sequence, cut_fragment, explode_unique_sequences
 
 '''
 Description
@@ -17,7 +18,7 @@ def main():
 
     nb_of_frags = 3 # number of fragments to divide the gene into for the golden gate fragment
 
-    frag_5prime_bsaI_site = "ACTGTAGGTCTCCT"  # BsaI site for 5'
+    frag_5prime_bsaI_site = "ACTGTAGGTCTCC"  # BsaI site for 5'
 
     '''
     Core of the script
@@ -47,13 +48,23 @@ def main():
         # Generate mutant gene sequences
         temp_df = oligo_pre_sequences(gene_seq, temp_df)
 
+        # Add BsaI site to 5' end of fragment
+        temp_df["mut_frag"] = temp_df["mut_frag"].apply(lambda lst: [frag_5prime_bsaI_site + seq for seq in lst])
+
         # Save temp_df without mut_gene column
-        output_df = temp_df.drop(columns=['mut_gene'])
-        output_file = f"./outputs/{frag_name}_oligos.csv"
-        output_df.to_csv(output_file, index=False)
+        output_info_df = temp_df.drop(columns=['mut_gene'])
+        output_file = f"./outputs/{frag_name}_oligos_info.csv"
+        output_info_df.to_csv(output_file, index=False)
         print(f"\nSaved {frag_name} to {output_file}")
+        print(f"\nOligo pool for {frag_name} head: \n{output_info_df.head()}")
 
-
+        # 4) Generate mutated sequences for each fragment to order:
+        df_to_order = explode_unique_sequences(output_info_df)
+        df_to_order = df_to_order[df_to_order["sequence"].str.len() > 0]
+        print(f"\nOligo pool to order for {frag_name} head: \n{df_to_order.head()}")
+        df_to_order_output = f"./outputs/{frag_name}_oligos_to_order.csv"
+        df_to_order.to_csv(df_to_order_output, index=False)
+        print(f"\nSaved {frag_name} to {df_to_order_output}")
 
 if __name__ == "__main__":
     main()

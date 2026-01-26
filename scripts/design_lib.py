@@ -155,9 +155,18 @@ def oligo_pre_sequences(gene_seq, temp_df):
     temp_df['mut_frag'] = mut_frag_list
     return temp_df
 
+def explode_unique_sequences(df):
+    # Explode mut_frag into individual rows
+    exploded = df.explode('mut_frag')
+    
+    # Drop duplicates to keep only unique (Pool name, sequence) pairs
+    exploded = exploded[['Pool name', 'mut_frag']].drop_duplicates()
+    
+    # Rename mut_frag to sequence
+    exploded.rename(columns={'mut_frag': 'sequence'}, inplace=True)
+    
+    return exploded.reset_index(drop=True)
 
-
-        
 
 if __name__ == "__main__":
     main()
