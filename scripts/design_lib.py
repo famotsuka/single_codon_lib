@@ -62,10 +62,11 @@ def generate_fragments(data_frame, nb_of_frags, start_window, end_window):
 
     return fragments
 
-def single_mutants(codon_df):
+def single_mutants(codon_df, codon_to_rarity):
     '''
     Generate a list of synonymous codons for each amino acid (excluding the WT codon).
     Adds a new column called 'single_muts' to the dataframe.
+    Adds a new column called 'single_muts_rarity' to the dataframe to track codon mutant rarity based on the codon usage table.
     Returns the modified dataframe.
     '''
     from Bio.Data import CodonTable
@@ -73,28 +74,24 @@ def single_mutants(codon_df):
     # Get the standard codon table
     codon_table = CodonTable.unambiguous_dna_by_name["Standard"]
     
-    # Create a reverse mapping: amino acid -> list of codons
+    # amino acid -> list of codons
     aa_to_codons = {}
     for codon, aa in codon_table.forward_table.items():
-        if aa not in aa_to_codons:
-            aa_to_codons[aa] = []
-        aa_to_codons[aa].append(codon)
-    
-    # Add stop codons
+        aa_to_codons.setdefault(aa, []).append(codon)
     aa_to_codons['*'] = list(codon_table.stop_codons)
-    
-    # Function to get synonymous codons (excluding the WT codon)
-    def get_synonymous(aa, wt_codon):
-        if aa in aa_to_codons:
-            # Get all codons for this AA, exclude the WT codon, and return as list
-            synonymous = [c for c in aa_to_codons[aa] if c != wt_codon]
-            return synonymous
-        return []
-    
-    # Apply the function to create the single_muts column
-    codon_df['single_muts'] = codon_df.apply(
-        lambda row: get_synonymous(row['amino_acid'], row['wt_codon']),
-        axis=1
+
+    def get_synonymous_and_rarity(aa, wt_codon):
+        if aa not in aa_to_codons:
+            return [], []
+        muts = [c for c in aa_to_codons[aa] if c != wt_codon]
+        rarities = [codon_to_rarity.get(c, None) for c in muts]
+        return muts, rarities
+
+    codon_df[["single_muts", "single_muts_rarity"]] = codon_df.apply(
+        lambda row: pd.Series(
+            get_synonymous_and_rarity(row["amino_acid"], row["wt_codon"])
+        ),
+        axis=1,
     )
     
     return codon_df
@@ -154,6 +151,51 @@ def oligo_pre_sequences(gene_seq, temp_df):
     temp_df['mut_gene'] = mut_gene_list
     temp_df['mut_frag'] = mut_frag_list
     return temp_df
+
+def split_rarity(df):
+    """
+    Split a dataframe with list-columns into two:
+    - df_rare: keeps only entries where rarity == 'rare'
+    - df_common: keeps only entries where rarity == 'common'
+    
+    Applies filtering consistently across:
+        - single_muts
+        - single_muts_rarity
+        - mut_frag
+    """
+    rare_rows = []
+    common_rows = []
+
+    for _, row in df.iterrows():
+        muts = row["single_muts"]
+        rarities = row["single_muts_rarity"]
+        frags = row["mut_frag"]
+
+        # Build index masks
+        rare_idx = [i for i, r in enumerate(rarities) if r == "rare"]
+        common_idx = [i for i, r in enumerate(rarities) if r == "common"]
+
+        # Build filtered rows
+        if rare_idx:
+            rare_rows.append({
+                **row.to_dict(),
+                "single_muts": [muts[i] for i in rare_idx],
+                "single_muts_rarity": [rarities[i] for i in rare_idx],
+                "mut_frag": [frags[i] for i in rare_idx],
+            })
+
+        if common_idx:
+            common_rows.append({
+                **row.to_dict(),
+                "single_muts": [muts[i] for i in common_idx],
+                "single_muts_rarity": [rarities[i] for i in common_idx],
+                "mut_frag": [frags[i] for i in common_idx],
+            })
+
+    df_rare = pd.DataFrame(rare_rows)
+    df_common = pd.DataFrame(common_rows)
+
+    return df_rare, df_common
 
 def explode_unique_sequences(df):
     # Explode mut_frag into individual rows
